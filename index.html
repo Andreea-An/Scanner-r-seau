@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mini Scanner de Ports TCP</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .container {
+            background-color: white;
+            border-radius: 5px;
+            padding: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: inline-block;
+            width: 120px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="number"] {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 200px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+        }
+        .terminal {
+            margin-top: 20px;
+            background-color: #000;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            padding: 10px;
+            border-radius: 4px;
+            height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .terminal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: #333;
+            color: white;
+            padding: 5px 10px;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+            margin-top: 20px;
+        }
+        .terminal-title {
+            font-weight: bold;
+        }
+        .terminal-buttons {
+            display: flex;
+        }
+        .terminal-button {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-left: 5px;
+        }
+        .terminal-button.red {
+            background-color: #ff5f56;
+        }
+        .terminal-button.yellow {
+            background-color: #ffbd2e;
+        }
+        .terminal-button.green {
+            background-color: #27c93f;
+        }
+        .status {
+            margin-top: 10px;
+            font-style: italic;
+            color: #666;
+        }
+        .progress-bar {
+            height: 20px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            margin: 15px 0;
+            overflow: hidden;
+            position: relative;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .progress-bar-text {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            text-align: center;
+            line-height: 20px;
+            color: #333;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .port-open {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Mini Scanner de Ports TCP</h1>
+    <div class="container">
+        <div class="form-group">
+            <label for="ip">Adresse IP:</label>
+            <input type="text" id="ip" value="127.0.0.1" placeholder="Ex: 192.168.1.1">
+        </div>
+        <div class="form-group">
+            <label for="start-port">Port de début:</label>
+            <input type="number" id="start-port" value="1" min="1" max="65535">
+        </div>
+        <div class="form-group">
+            <label for="end-port">Port de fin:</label>
+            <input type="number" id="end-port" value="1024" min="1" max="65535">
+        </div>
+        <div class="form-group">
+            <label for="timeout">Timeout (sec):</label>
+            <input type="number" id="timeout" value="0.5" min="0.1" step="0.1">
+        </div>
+        <button id="scan-button" onclick="startScan()">Démarrer le scan</button>
+        
+        <div class="status" id="status">Prêt</div>
+        
+        <div class="progress-bar" id="progress-bar" style="display: none;">
+            <div class="progress-bar-fill" id="progress-bar-fill"></div>
+            <div class="progress-bar-text" id="progress-bar-text">0%</div>
+        </div>
+        
+        <div class="terminal-header">
+            <div class="terminal-buttons">
+                <div class="terminal-button red"></div>
+                <div class="terminal-button yellow"></div>
+                <div class="terminal-button green"></div>
+            </div>
+            <div class="terminal-title">Terminal</div>
+            <div></div>
+        </div>
+        <div class="terminal" id="terminal">$ Scanner de ports TCP prêt...</div>
+    </div>
+
+    <script>
+        // Variables globales
+        let scanInProgress = false;
+        let progressInterval;
+        let currentProgress = 0;
+        
+        function validateIP(ip) {
+            const pattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+            if (!pattern.test(ip)) return false;
+            
+            const parts = ip.split('.');
+            for (let i = 0; i < parts.length; i++) {
+                const part = parseInt(parts[i]);
+                if (part < 0 || part > 255) return false;
+            }
+            return true;
+        }
+        
+        function startScan() {
+            // Vérifier si un scan est déjà en cours
+            if (scanInProgress) {
+                alert("Un scan est déjà en cours. Veuillez patienter.");
+                return;
+            }
+            
+            const ip = document.getElementById('ip').value;
+            const startPort = document.getElementById('start-port').value;
+            const endPort = document.getElementById('end-port').value;
+            const timeout = document.getElementById('timeout').value;
+            
+            // Validation de base
+            if (!validateIP(ip)) {
+                alert("Adresse IP invalide. Format attendu: xxx.xxx.xxx.xxx");
+                return;
+            }
+            
+            if (parseInt(startPort) > parseInt(endPort)) {
+                alert("Le port de début doit être inférieur au port de fin.");
+                return;
+            }
+            
+            // Mettre à jour l'interface
+            scanInProgress = true;
+            document.getElementById('scan-button').disabled = true;
+            document.getElementById('status').textContent = 'Scan en cours...';
+            document.getElementById('progress-bar').style.display = 'block';
+            
+            // Afficher la commande dans le terminal
+            const terminal = document.getElementById('terminal');
+            terminal.innerHTML = `$ Scanner de ports TCP prêt...
+$ python3 scanner.py ${ip} ${startPort} ${endPort} ${timeout}
+`;
+            
+            // Simuler la progression
+            currentProgress = 0;
+            updateProgress(0);
+            
+            // Calculer l'incrément de progression en fonction du nombre de ports
+            const totalPorts = parseInt(endPort) - parseInt(startPort) + 1;
+            const progressIncrement = 100 / totalPorts;
+            
+            // Envoyer la requête au serveur
+            console.log('Envoi de la requête au serveur...');
+            console.log(`Données: IP=${ip}, start_port=${startPort}, end_port=${endPort}, timeout=${timeout}`);
+            
+            // Utiliser l'URL complète avec le port
+            const serverUrl = window.location.origin + '/scan';
+            console.log('URL du serveur:', serverUrl);
+            
+            fetch(serverUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    ip: ip,
+                    start_port: parseInt(startPort),
+                    end_port: parseInt(endPort),
+                    timeout: parseFloat(timeout)
+                }),
+            })
+            .then(response => {
+                console.log('Réponse reçue du serveur:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Données reçues:', data);
+                
+                // Arrêter la simulation de progression
+                clearInterval(progressInterval);
+                
+                // Mettre à jour la progression à 100%
+                updateProgress(100);
+                
+                // Afficher les résultats dans le terminal
+                if (data.error && data.error.length > 0) {
+                    terminal.innerHTML += `Erreur: ${data.error}\n`;
+                } else if (data.output) {
+                    terminal.innerHTML += data.output;
+                } else {
+                    terminal.innerHTML += "Aucune donnée reçue du serveur.\n";
+                }
+                
+                // Faire défiler vers le bas
+                terminal.scrollTop = terminal.scrollHeight;
+                
+                // Réinitialiser l'interface
+                scanInProgress = false;
+                document.getElementById('scan-button').disabled = false;
+                document.getElementById('status').textContent = 'Scan terminé';
+            })
+            .catch(error => {
+                console.error('Erreur lors de la requête:', error);
+                
+                // Arrêter la simulation de progression
+                clearInterval(progressInterval);
+                
+                // Afficher l'erreur dans le terminal
+                terminal.innerHTML += `Erreur: ${error}\n`;
+                terminal.innerHTML += "Vérifiez que le serveur est bien démarré sur le port 8080.\n";
+                
+                // Réinitialiser l'interface
+                scanInProgress = false;
+                document.getElementById('scan-button').disabled = false;
+                document.getElementById('status').textContent = 'Erreur';
+            });
+            
+            // Simuler la progression pendant le scan
+            progressInterval = setInterval(() => {
+                // Augmenter progressivement jusqu'à 90% (les 10% restants seront ajoutés à la fin)
+                if (currentProgress < 90) {
+                    currentProgress += 1;
+                    updateProgress(currentProgress);
+                }
+            }, 100);
+        }
+        
+        function updateProgress(progress) {
+            const progressBarFill = document.getElementById('progress-bar-fill');
+            const progressBarText = document.getElementById('progress-bar-text');
+            
+            progressBarFill.style.width = `${progress}%`;
+            progressBarText.textContent = `${Math.round(progress)}%`;
+        }
+    </script>
+</body>
+</html>
